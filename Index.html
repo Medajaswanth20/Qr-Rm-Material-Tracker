@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <title>Raw Material Dashboard</title>
+
+<!-- Google Font -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+<style>
+    :root {
+        --sidebar-w: 14rem;
+        --page-bg: #f4f6f9;
+        --sidebar-bg: #1f2937;
+    }
+
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: 'Inter', sans-serif;
+    }
+
+    html {
+        overflow-x: hidden;
+    }
+
+    body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--page-bg);
+    }
+
+    /* Flex shell: sidebar stays in flow so zoom does not overlap main content */
+    .app-layout {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch; /* allow sidebar background to extend to bottom */
+        width: 100%;
+        max-width: 100vw;
+        min-height: 100vh;
+    }
+
+    .sidebar {
+        flex: 0 0 var(--sidebar-w);
+        width: var(--sidebar-w);
+        min-width: 12rem;
+        max-width: 15rem;
+        background: var(--sidebar-bg);
+        color: #fff;
+        padding: 1.25rem 1rem;
+        position: relative;
+        z-index: 2;
+        min-height: 100vh; /* keep sidebar height stable */
+    }
+
+    .sidebar h2 {
+        margin-bottom: 1.5rem;
+        font-size: 1.15rem;
+        font-weight: 600;
+    }
+
+    .sidebar a {
+        display: block;
+        color: #e5e7eb;
+        text-decoration: none;
+        margin: 0.25rem 0;
+        padding: 0.6rem 0.75rem;
+        border-radius: 8px;
+        transition: background 0.2s ease, color 0.2s ease;
+    }
+
+    .sidebar a:hover {
+        background: #374151;
+        color: #fff;
+    }
+
+    .content-area {
+        flex: 1 1 auto;
+        min-width: 0;
+        padding: clamp(0.75rem, 2vw, 1.5rem);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .auth-panel {
+        width: 100%;
+        max-width: 32rem;
+        margin: 0 auto;
+        align-self: flex-start; /* keep auth card height to its content */
+    }
+
+    /* Remove extra bottom whitespace inside shipment/report/machines panels */
+    #shipmentSection .card:last-of-type,
+    #reportSection .card:last-of-type,
+    #machinesSection .card:last-of-type {
+        margin-bottom: 0;
+    }
+
+    /* Shared centered panel for non-auth sections (shipments / reports) */
+    .page-section {
+        width: 100%;
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+
+    /* QR modal */
+    .qr-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(17, 24, 39, 0.55);
+        z-index: 9999;
+        padding: 1.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .qr-modal-content {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        width: min(900px, 95vw);
+        padding: 1rem;
+    }
+
+    .qr-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .qr-modal-body {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .qr-image-wrap {
+        flex: 0 0 auto;
+    }
+
+    #qrModalContainer {
+        width: 220px;
+        height: 220px;
+        background: #fff;
+    }
+
+    .qr-modal-text {
+        flex: 1 1 340px;
+        max-width: 520px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 0.75rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .shipment-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    /* Make shipment/report/machines content fill available width */
+    #shipmentSection .header,
+    #shipmentSection .card,
+    #reportSection .header,
+    #reportSection .card,
+    #machinesSection .header,
+    #machinesSection .card.machine-panel {
+        width: 100%;
+        max-width: none;
+        margin-left: 0;
+        margin-right: 0;
+    }
+
+    #machinesSection #machineTypeSelect {
+        width: 100%;
+        max-width: 420px;
+        margin-top: 0.35rem;
+        padding: 0.6rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        font-size: 1rem;
+        background: #fff;
+        color: #0f172a;
+    }
+
+    .machine-detail-panel {
+        margin-top: 1.25rem;
+        padding: 1rem 1.15rem;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        color: #475569;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 640px;
+    }
+
+    .machine-detail-panel strong {
+        color: #0f172a;
+    }
+
+    .auth-tabs {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+    }
+
+    /* Keep the underline/clickable area tight to the text */
+    .forgot-password-row {
+        margin: 0.25rem 0 0;
+        text-align: right;
+        white-space: nowrap;
+        width: fit-content; /* keep click/underline box only around text */
+        margin-left: auto;
+    }
+
+    #forgotPasswordLink {
+        display: inline;
+        text-decoration: underline;
+    }
+
+    /* Prevent the browser focus rectangle from taking full-line box height */
+    #forgotPasswordLink:focus,
+    #forgotPasswordLink:active {
+        outline: none;
+        box-shadow: none;
+    }
+
+    .main {
+        width: 100%;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        flex: 1 1 auto;
+    }
+
+    /* Header */
+    .header {
+        background: white;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        margin-bottom: 20px;
+    }
+
+    .header h2 {
+        font-size: clamp(1.05rem, 2.5vw, 1.35rem);
+        font-weight: 600;
+        color: #111827;
+    }
+
+    /* Cards */
+    .card {
+        background: white;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        transition: 0.3s;
+    }
+
+    .card:hover {
+        transform: translateY(-3px);
+    }
+
+    /* Inputs */
+    input {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 12px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        transition: 0.3s;
+        color: #111;
+        cursor: text;
+        caret-color: #000;
+    }
+
+    select {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 12px;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        transition: 0.3s;
+        color: #111;
+        background: #fff;
+    }
+
+    select:hover,
+    select:focus {
+        border-color: #000;
+        outline: none;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+    }
+
+    input:hover,
+    input:focus {
+        border-color: #000;
+        color: #000;
+        background: #fcfcfc;
+        outline: none;
+        box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+        cursor: text;
+    }
+
+    /* (Role dropdown removed — designation uses normal input styles) */
+
+    #signinEmail:hover,
+    #signinEmail:focus,
+    #signinPassword:hover,
+    #signinPassword:focus,
+    #signupName:hover,
+    #signupName:focus,
+    #signupEmail:hover,
+    #signupEmail:focus,
+    #signupPassword:hover,
+    #signupPassword:focus {
+        background: #f4f7fb;
+    }
+
+    /* Buttons */
+    button {
+        padding: 10px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.3s;
+    }
+
+    .btn-primary {
+        background: #2563eb;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #1d4ed8;
+    }
+
+    .report-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+
+    .btn-download {
+        background: #10b981;
+        color: white;
+        margin-bottom: 0;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .btn-download:hover {
+        background: #059669;
+        box-shadow: 0 6px 14px rgba(16, 185, 129, 0.35);
+    }
+
+    .btn-primary {
+        background: #1f2937;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #111827;
+    }
+
+    /* Table */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    th {
+        background: #2563eb;
+        color: white;
+    }
+
+    th, td {
+        padding: 10px;
+        text-align: center;
+        border-bottom: 1px solid #ddd;
+    }
+
+    tr:hover {
+        background: #f1f5f9;
+    }
+
+    /* Loader */
+    #loader {
+        display: none;
+        text-align: center;
+        margin: 10px;
+    }
+
+    /* User info card */
+    .user-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.07);
+        padding: 16px;
+        margin: 0 auto 1.25rem auto;
+        display: none;
+        width: 100%;
+        max-width: 1100px;
+    }
+
+    .user-card h3 {
+        margin-bottom: 12px;
+        font-size: 1.1rem;
+        color: #1f2937;
+    }
+
+    .user-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+    }
+
+    .user-table th,
+    .user-table td {
+        border: 1px solid #e2e8f0;
+        padding: 10px;
+        text-align: left;
+    }
+
+    .user-table th {
+        background: #f8fafc;
+        color: #0f172a;
+        font-weight: 700;
+    }
+
+    .user-table tbody tr:nth-child(odd) {
+        background: #ffffff;
+    }
+
+    .user-table tbody tr:nth-child(even) {
+        background: #f8fafc;
+    }
+
+    .report-summary-row {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .report-summary-row > div {
+        background: #f1f5f9;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        color: #0f172a;
+        font-weight: 600;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .app-layout {
+            flex-direction: column;
+        }
+
+        .sidebar {
+            flex: 0 0 auto;
+            width: 100%;
+            max-width: none;
+            min-height: auto;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.5rem 1rem;
+            padding: 0.75rem 1rem;
+        }
+
+        .sidebar h2 {
+            margin-bottom: 0;
+            width: 100%;
+        }
+
+        .sidebar a {
+            display: inline-block;
+            margin: 0;
+        }
+
+        .user-card {
+            width: 100%;
+            margin-left: 0;
+        }
+
+        .user-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+</head>
+
+<body>
+
+<div class="app-layout">
+
+<!-- Sidebar -->
+
+<div class="sidebar">
+    <h2>📦 Dashboard</h2>
+    <a href="#" id="homeBtn">Home</a>
+    <a href="#" id="shipmentsBtn">Raw material</a>
+    <a href="#" id="reportsBtn">Reports</a>
+    <a href="#" id="machinesBtn">Machines</a>
+    <a href="#" id="cncBtn" style="padding-left: 2rem; display: none;">.Cnc</a>
+    <a href="#" id="logoutBtn">Logout</a>
+</div>
+
+<!-- Main Content -->
+
+<div id="authSection" class="card auth-panel">
+    <h3>🔐 Sign In / Sign Up</h3>
+    <div class="auth-tabs">
+        <button id="signInTab" class="btn-primary" type="button">Sign In</button>
+        <button id="signUpTab" class="btn-primary" type="button">Sign Up</button>
+    </div>
+
+    <form id="signInForm" style="display:block;">
+        <input type="email" id="signinEmail" placeholder="Email" required>
+        <input type="password" id="signinPassword" placeholder="Password" required>
+        <button class="btn-primary" type="submit">Sign In</button>
+        <p class="forgot-password-row"><a href="#" id="forgotPasswordLink">Forgot password?</a></p>
+    </form>
+
+    <form id="forgotPasswordForm" style="display:none; margin-top:10px;">
+        <input type="email" id="forgotEmail" placeholder="Enter registered email" required>
+        <button class="btn-primary" type="submit">Get reset token</button>
+    </form>
+
+    <form id="resetPasswordForm" style="display:none; margin-top:10px;">
+        <input type="text" id="resetToken" placeholder="Enter reset token" required>
+        <input type="password" id="newPassword" placeholder="Enter new password" required>
+        <button class="btn-primary" type="submit">Reset Password</button>
+    </form>
+
+    <form id="signUpForm" style="display:none; margin-top:10px;">
+        <input type="text" id="signupName" placeholder="Full Name" required>
+        <input type="email" id="signupEmail" placeholder="Email" required>
+        <input type="password" id="signupPassword" placeholder="Password" required>
+        <input type="text" id="signupRole" placeholder="Designation (e.g., Manager, Analyst)" required>
+        <button class="btn-primary" type="submit">Sign Up</button>
+    </form>
+
+    <p id="authMessage" style="color:#dc2626; margin-top:10px;"></p>
+</div>
+
+<div class="main" id="appContent" style="display:none;">
+    <div class="user-card" id="userInfo">
+        <h3>👤 My Profile</h3>
+        <table class="user-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Designation</th>
+                    <th>Email</th>
+                </tr>
+            </thead>
+            <tbody id="userList">
+                <tr>
+                    <td colspan="3" style="text-align:center; color:#64748b;">No profile loaded yet</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+<div id="shipmentSection" class="page-section">
+    <!-- Header -->
+    <div class="header">
+        <h2>📊 Add raw material</h2>
+    </div>
+
+    <!-- Form -->
+    <div class="card">
+    <form id="form">
+        <input type="text" id="rawMaterialDimensions" placeholder="Rm Dimensions (e.g. L 3000 × W 2000 × H 3)" required>
+        <input type="text" id="materialGrade" placeholder="Material Grade" required>
+        <select id="materialTypeSelect" required></select>
+        <input type="text" id="newMaterialTypeInput" placeholder="New Material (e.g. AL, SS — saved as UPPERCASE)" style="display:none; text-transform: uppercase;" autocomplete="off">
+        <input type="text" id="uom" placeholder="UOM (e.g. KG, MT, PCS)" required>
+        <input type="number" id="kgs" placeholder="Kgs" step="any" min="0" required>
+        <input type="date" id="shipment_date" required>
+
+        <button class="btn-primary" type="submit">➕ Add entry</button>
+    </form>
+
+    <p id="message"></p>
+    <div id="latestShipment" style="margin-top:15px; color:#065f46;"></div>
+</div>
+
+</div>
+
+<div id="reportSection" class="page-section" style="display:none;">
+    <div class="header">
+        <h2>📈 Reports</h2>
+    </div>
+    <div class="card">
+        <div class="report-actions">
+            <button class="btn-download" onclick="downloadExcel()">⬇ Download Excel</button>
+            <button class="btn-primary" onclick="refreshReports(event)">🔄 Refresh Report Data</button>
+        </div>
+        <div id="reportSummary"></div>
+
+        <table class="user-table" style="margin-top:16px;">
+            <thead>
+                <tr>
+                    <th>UOM</th>
+                    <th>Material Grade</th>
+                    <th>Total kgs</th>
+                </tr>
+            </thead>
+            <tbody id="reportBody"></tbody>
+        </table>
+
+        <div class="header" style="margin-top:20px;">
+            <h2>📦 All entries</h2>
+        </div>
+        <div id="loader" style="display:none; text-align:center; margin:10px;">⏳ Loading...</div>
+        <table class="user-table" id="allShipmentsTable">
+            <thead>
+                <tr>
+                    <th>Rm Dimensions</th>
+                    <th>Material Grade</th>
+                    <th>Material</th>
+                    <th>UOM</th>
+                    <th>Kgs</th>
+                    <th>Date</th>
+                    <th>QR</th>
+                </tr>
+            </thead>
+            <tbody id="allShipmentsBody">
+                <tr><td colspan="7" style="text-align:center; color:#64748b;">No entries loaded yet</td></tr>
+            </tbody>
+        </table>
+
+        <div id="shipmentPagination" class="shipment-pagination">
+            <button class="btn-primary" id="prevShipmentsBtn" type="button" onclick="prevShipmentPage()" disabled>&lt;</button>
+            <button class="btn-primary" id="nextShipmentsBtn" type="button" onclick="nextShipmentPage()">></button>
+            <span id="shipmentPageInfo" style="margin-left:10px;"></span>
+        </div>
+    </div>
+</div>
+
+<div id="machinesSection" class="page-section" style="display:none;">
+    <div class="header">
+        <h2>⚙️ Machines</h2>
+    </div>
+    <div class="card machine-panel">
+        <label for="machineTypeSelect" style="display:block; font-weight:600; color:#334155;">Machine type</label>
+        <select id="machineTypeSelect">
+            <option value="" selected disabled>Select machine…</option>
+            <option value="CMC">CMC — CNC machining center</option>
+            <option value="VMC">VMC — Vertical machining center</option>
+            <option value="TMC">TMC — Turn-mill / turning center</option>
+        </select>
+        <div id="machineDetail" class="machine-detail-panel" style="display:none;" aria-live="polite"></div>
+    </div>
+</div>
+
+<!-- QR Modal -->
+<div id="qrModal" class="qr-modal" style="display:none;">
+    <div class="qr-modal-content">
+        <div class="qr-modal-header">
+            <h3 style="margin:0; font-size:1.1rem;">Raw material QR</h3>
+            <button id="qrModalClose" class="btn-primary" type="button" style="padding:6px 10px;">Close</button>
+        </div>
+        <div class="qr-modal-body">
+            <div class="qr-image-wrap">
+                <div id="qrModalContainer"></div>
+            </div>
+            <pre id="qrModalText" class="qr-modal-text"></pre>
+        </div>
+    </div>
+</div>
+
+</div>
+
+<!-- QR generator (renders QR into a div) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// Must match the port in Mail.env (PORT=...) and node Server.js
+const API_BASE = 'http://127.0.0.1:3001';
+
+function normalizeMaterialTypeClient(s) {
+    return String(s == null ? '' : s).trim().toUpperCase();
+}
+
+// --- Material type dropdown (AL, SS, etc.) ---
+async function loadMaterialTypes() {
+    const select = document.getElementById('materialTypeSelect');
+    if (!select) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/material-types`);
+        const types = await res.json();
+
+        const options =
+            `<option value="" selected disabled>Select Material</option>` +
+            (Array.isArray(types) ? types.map(c => `<option value="${String(c.name).replace(/"/g, '&quot;')}">${c.name}</option>`).join('') : '') +
+            `<option value="__new__">+ Add new Material…</option>`;
+
+        select.innerHTML = options;
+    } catch (e) {
+        select.innerHTML = `<option value="__new__">+ Add new Material…</option>`;
+    }
+}
+
+function setupMaterialTypeDropdown() {
+    const select = document.getElementById('materialTypeSelect');
+    const input = document.getElementById('newMaterialTypeInput');
+    if (!select || !input) return;
+
+    select.addEventListener('change', () => {
+        if (select.value === '__new__') {
+            input.style.display = 'block';
+            input.value = '';
+            input.focus();
+        } else {
+            input.style.display = 'none';
+            input.value = '';
+        }
+    });
+}
+
+function setupMachineDropdown() {
+    const sel = document.getElementById('machineTypeSelect');
+    const detail = document.getElementById('machineDetail');
+    if (!sel || !detail) return;
+
+    const html = {
+        CMC: '<strong>CMC</strong> — CNC machining center for milling, drilling, and related operations.',
+        VMC: '<strong>VMC</strong> — Vertical machining center; vertical spindle for flat workpieces, pockets, and 3-axis programs.',
+        TMC: '<strong>TMC</strong> — Turn-mill / turning center with live tooling or mill-turn for shafts and rotational parts.'
+    };
+
+    sel.addEventListener('change', () => {
+        const v = sel.value;
+        if (!v || !html[v]) {
+            detail.style.display = 'none';
+            detail.innerHTML = '';
+            return;
+        }
+        detail.innerHTML = html[v];
+        detail.style.display = 'block';
+    });
+}
+
+async function resolveMaterialTypeName() {
+    const select = document.getElementById('materialTypeSelect');
+    const input = document.getElementById('newMaterialTypeInput');
+    if (!select) return '';
+
+    if (select.value && select.value !== '__new__') return normalizeMaterialTypeClient(select.value);
+
+    const name = input ? normalizeMaterialTypeClient(input.value) : '';
+    if (!name) return '';
+
+    const res = await fetch(`${API_BASE}/material-types`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+    const created = await res.json();
+    if (!res.ok) throw new Error(created.error || 'Could not create material type');
+
+    if (created.alreadyExists) {
+        alert('This material type is already in the list. It has been selected for this entry.');
+    }
+
+    await loadMaterialTypes();
+    if (select) select.value = created.name;
+    if (input) input.style.display = 'none';
+    return created.name;
+}
+
+// INSERT
+document.getElementById("form").addEventListener("submit", async function(e) {
+    e.preventDefault();
+
+    const raw_material_dimensions = document.getElementById("rawMaterialDimensions").value.trim();
+    const material_grade = document.getElementById("materialGrade").value.trim();
+    const material_type = await resolveMaterialTypeName();
+    const uom = document.getElementById("uom").value.trim();
+    const kgs = document.getElementById("kgs").value;
+    const shipment_date = document.getElementById("shipment_date").value;
+
+    if (!raw_material_dimensions || !material_grade || !material_type || !uom || !kgs || !shipment_date) {
+        document.getElementById("message").innerText = "❌ Fill all fields";
+        return;
+    }
+
+    document.getElementById("message").innerText = "⏳ Inserting...";
+
+    const token = getAuthToken();
+    if (!token) {
+        document.getElementById("message").innerText = "❌ Please sign in before adding entries.";
+        return;
+    }
+
+    const addRes = await fetch(`${API_BASE}/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ raw_material_dimensions, material_grade, material_type, uom, kgs, shipment_date })
+    });
+    const addJson = await addRes.json().catch(() => ({}));
+    if (!addRes.ok) {
+        document.getElementById("message").innerText = addJson.error || "❌ Could not save entry.";
+        return;
+    }
+
+    document.getElementById("message").innerText = "✅ Inserted!";
+    document.getElementById("latestShipment").innerHTML = `<strong>Last entry:</strong> ${raw_material_dimensions} | grade ${material_grade} | type ${material_type} | UOM ${uom} | ${kgs} kgs | ${shipment_date}`;
+    document.getElementById("form").reset();
+    const newMt = document.getElementById("newMaterialTypeInput");
+    if (newMt) { newMt.style.display = "none"; newMt.value = ""; }
+    await loadMaterialTypes();
+    // Optional: refresh snapshot table or report on shipment addition
+    // await showReports(); // uncomment if report should update automatically
+});
+
+// DOWNLOAD
+function downloadExcel() {
+    window.location.href = `${API_BASE}/download`;
+}
+
+// Navigation
+const homeBtn = document.getElementById('homeBtn');
+const shipmentsBtn = document.getElementById('shipmentsBtn');
+const reportsBtn = document.getElementById('reportsBtn');
+const machinesBtn = document.getElementById('machinesBtn');
+
+homeBtn.addEventListener('click', async function(event) {
+    event.preventDefault();
+    await showHome();
+});
+
+shipmentsBtn.addEventListener('click', async function(event) {
+    event.preventDefault();
+    await showShipments();
+});
+
+reportsBtn.addEventListener('click', async function(event) {
+    event.preventDefault();
+    await showReports();
+});
+
+if (machinesBtn) {
+    machinesBtn.addEventListener('click', async function(event) {
+        event.preventDefault();
+        
+        // Toggle .Cnc link
+        const cnc = document.getElementById('cncBtn');
+        if (cnc) {
+            cnc.style.display = (cnc.style.display === 'none') ? '' : 'none';
+        }
+        
+        await showMachines();
+    });
+}
+
+const cncBtn = document.getElementById('cncBtn');
+if (cncBtn) {
+    cncBtn.addEventListener('click', async function(event) {
+        event.preventDefault();
+        await showMachines();
+        
+        // Auto-select CNC (CMC) and trigger change event to populate details
+        const machineSelect = document.getElementById('machineTypeSelect');
+        if (machineSelect) {
+            machineSelect.value = 'CMC';
+            machineSelect.dispatchEvent(new Event('change'));
+        }
+    });
+}
+
+const logoutBtn = document.getElementById('logoutBtn');
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', function(event) {
+        event.preventDefault();
+        clearAuth();
+        showAuth();
+        document.getElementById('authMessage').textContent = 'Logged out. Please sign in.';
+    });
+}
+
+async function showHome() {
+    const shipmentSection = document.getElementById('shipmentSection');
+    const reportSection = document.getElementById('reportSection');
+    const machinesSection = document.getElementById('machinesSection');
+    const userInfo = document.getElementById('userInfo');
+    if (shipmentSection) shipmentSection.style.setProperty('display', 'none', 'important');
+    if (reportSection) reportSection.style.setProperty('display', 'none', 'important');
+    if (machinesSection) machinesSection.style.setProperty('display', 'none', 'important');
+    if (userInfo) userInfo.style.setProperty('display', 'block', 'important');
+    await loadUser();
+}
+
+async function showShipments() {
+    const shipmentSection = document.getElementById('shipmentSection');
+    const reportSection = document.getElementById('reportSection');
+    const machinesSection = document.getElementById('machinesSection');
+    const userInfo = document.getElementById('userInfo');
+    if (userInfo) userInfo.style.setProperty('display', 'none', 'important');
+    if (reportSection) reportSection.style.setProperty('display', 'none', 'important');
+    if (machinesSection) machinesSection.style.setProperty('display', 'none', 'important');
+    if (shipmentSection) shipmentSection.style.setProperty('display', 'block', 'important');
+    const latestShipment = document.getElementById('latestShipment');
+    if (latestShipment) latestShipment.innerText = '';
+    await loadMaterialTypes();
+}
+
+async function showReports() {
+    const shipmentSection = document.getElementById('shipmentSection');
+    const reportSection = document.getElementById('reportSection');
+    const machinesSection = document.getElementById('machinesSection');
+    const userInfo = document.getElementById('userInfo');
+    if (userInfo) userInfo.style.setProperty('display', 'none', 'important');
+    if (shipmentSection) shipmentSection.style.setProperty('display', 'none', 'important');
+    if (machinesSection) machinesSection.style.setProperty('display', 'none', 'important');
+    if (reportSection) reportSection.style.setProperty('display', 'block', 'important');
+    await loadReports();
+}
+
+async function showMachines() {
+    const shipmentSection = document.getElementById('shipmentSection');
+    const reportSection = document.getElementById('reportSection');
+    const machinesSection = document.getElementById('machinesSection');
+    const userInfo = document.getElementById('userInfo');
+    if (userInfo) userInfo.style.setProperty('display', 'none', 'important');
+    if (shipmentSection) shipmentSection.style.setProperty('display', 'none', 'important');
+    if (reportSection) reportSection.style.setProperty('display', 'none', 'important');
+    if (machinesSection) machinesSection.style.setProperty('display', 'block', 'important');
+}
+
+// AUTH
+function handleAuthUI() {
+    const signInTab = document.getElementById('signInTab');
+    const signUpTab = document.getElementById('signUpTab');
+    const signInForm = document.getElementById('signInForm');
+    const signUpForm = document.getElementById('signUpForm');
+
+    signInTab.addEventListener('click', () => {
+        signInForm.style.display = 'block';
+        signUpForm.style.display = 'none';
+        document.getElementById('authMessage').textContent = '';
+    });
+
+    signUpTab.addEventListener('click', () => {
+        signInForm.style.display = 'none';
+        signUpForm.style.display = 'block';
+        document.getElementById('authMessage').textContent = '';
+    });
+}
+
+function setAuthToken(token) {
+    localStorage.setItem('shipment_token', token);
+}
+
+function getAuthToken() {
+    return localStorage.getItem('shipment_token');
+}
+
+function clearAuth() {
+    localStorage.removeItem('shipment_token');
+}
+
+function showApp() {
+    document.getElementById('authSection').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    const mainNav = document.getElementById('mainNav');
+    if (mainNav) mainNav.style.display = 'block';
+    showShipments();
+}
+
+function showAuth() {
+    document.getElementById('authSection').style.display = 'block';
+    document.getElementById('appContent').style.display = 'none';
+    const mainNav = document.getElementById('mainNav');
+    if (mainNav) mainNav.style.display = 'none';
+}
+
+async function checkSession() {
+    // Disable auto-login on page refresh. Always require a fresh sign-in.
+    clearAuth();
+    showAuth();
+    return;
+
+    // If you want to re-enable session persistence later, restore previous logic:
+    // const token = getAuthToken();
+    // if (!token) return showAuth();
+    // ...
+}
+
+async function signupHandler(event) {
+    event.preventDefault();
+    const name = document.getElementById('signupName').value.trim();
+    const email = document.getElementById('signupEmail').value.trim();
+    const password = document.getElementById('signupPassword').value;
+    const roleEl = document.getElementById('signupRole');
+    const role = roleEl ? roleEl.value.trim() : '';
+    const authMessage = document.getElementById('authMessage');
+
+    try {
+        if (!role) {
+            authMessage.style.color = '#dc2626';
+            authMessage.textContent = 'Designation is required.';
+            return;
+        }
+        const res = await fetch(`${API_BASE}/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, email, password, role })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            authMessage.style.color = '#dc2626';
+            authMessage.textContent = data.error || 'Signup failed';
+            return;
+        }
+        // Do not auto-login on signup. Require explicit user sign-in.
+        clearAuth();
+        authMessage.style.color = '#16a34a';
+        authMessage.textContent = 'Signup successful. Please sign in now.';
+
+        // Show sign-in form so user can log in immediately.
+        document.getElementById('signInForm').style.display = 'block';
+        document.getElementById('signUpForm').style.display = 'none';
+        document.getElementById('signInTab').classList.add('active');
+        document.getElementById('signUpTab').classList.remove('active');
+    } catch (err) {
+        authMessage.style.color = '#dc2626';
+        authMessage.textContent = 'Signup error: ' + err.message;
+    }
+}
+
+async function signinHandler(event) {
+    event.preventDefault();
+    const email = document.getElementById('signinEmail').value.trim();
+    const password = document.getElementById('signinPassword').value;
+    const authMessage = document.getElementById('authMessage');
+
+    try {
+        const res = await fetch(`${API_BASE}/signin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            authMessage.style.color = '#dc2626';
+            let msg = data.error || 'Signin failed';
+            if (data.missingTable) {
+                msg += ` (missing data: ${data.missingTable} table)`;
+            }
+            authMessage.textContent = msg;
+            return;
+        }
+        setAuthToken(data.token);
+        authMessage.style.color = '#16a34a';
+        authMessage.textContent = 'Signin successful. Redirecting...';
+        showApp();
+    } catch (err) {
+        authMessage.style.color = '#dc2626';
+        authMessage.textContent = 'Signin error: ' + err.message;
+    }
+}
+
+async function forgotPasswordHandler(event) {
+    event.preventDefault();
+    const email = document.getElementById('forgotEmail').value.trim();
+    const authMessage = document.getElementById('authMessage');
+
+    try {
+        const res = await fetch(`${API_BASE}/forgot-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            authMessage.style.color = '#dc2626';
+            authMessage.textContent = data.error || 'We could not process your request. Please try again.';
+            return;
+        }
+
+        const hasToken = data.token != null && String(data.token).length > 0;
+        if (!hasToken) {
+            authMessage.style.color = '#b45309';
+            authMessage.textContent = data.message || 'We could not issue a reset code for this email.';
+            document.getElementById('resetPasswordForm').style.display = 'none';
+            return;
+        }
+
+        authMessage.style.color = '#16a34a';
+        authMessage.textContent =
+            (data.message || 'Reset code issued.') +
+            ' Enter the code in the fields below, then choose a new password.';
+        document.getElementById('resetPasswordForm').style.display = 'block';
+        document.getElementById('resetToken').value = '';
+    } catch (err) {
+        authMessage.style.color = '#dc2626';
+        authMessage.textContent = 'Forgot password error: ' + err.message;
+    }
+}
+
+async function resetPasswordHandler(event) {
+    event.preventDefault();
+    const token = document.getElementById('resetToken').value.trim();
+    const password = document.getElementById('newPassword').value;
+    const authMessage = document.getElementById('authMessage');
+
+    try {
+        const res = await fetch(`${API_BASE}/reset-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            authMessage.style.color = '#dc2626';
+            authMessage.textContent = data.error || 'Could not reset password';
+            return;
+        }
+
+        authMessage.style.color = '#16a34a';
+        authMessage.textContent = data.message || 'Password reset successful. Please sign in.';
+        document.getElementById('forgotPasswordForm').style.display = 'none';
+        document.getElementById('resetPasswordForm').style.display = 'none';
+        showAuth();
+    } catch (err) {
+        authMessage.style.color = '#dc2626';
+        authMessage.textContent = 'Reset password error: ' + err.message;
+    }
+}
+
+// attach auth form handlers
+document.getElementById('signUpForm').addEventListener('submit', signupHandler);
+document.getElementById('signInForm').addEventListener('submit', signinHandler);
+document.getElementById('forgotPasswordLink').addEventListener('click', function(e) {
+    e.preventDefault();
+    document.getElementById('forgotPasswordForm').style.display = 'block';
+    document.getElementById('resetPasswordForm').style.display = 'none';
+    document.getElementById('authMessage').textContent = '';
+});
+document.getElementById('forgotPasswordForm').addEventListener('submit', forgotPasswordHandler);
+document.getElementById('resetPasswordForm').addEventListener('submit', resetPasswordHandler);
+
+handleAuthUI();
+window.addEventListener('load', checkSession);
+setupMaterialTypeDropdown();
+setupMachineDropdown();
+loadMaterialTypes();
+
+// INIT
+function formatDate(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+
+    return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+    });
+}
+
+async function loadUser() {
+    try {
+        const userList = document.getElementById('userList');
+        const token = getAuthToken();
+        if (!token) {
+            userList.innerHTML =
+                '<tr><td colspan="3" style="text-align:center; color:#b45309;">Please sign in to view your profile.</td></tr>';
+            return;
+        }
+
+        const res = await fetch(`${API_BASE}/profile`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const profile = await res.json();
+        if (!res.ok) {
+            let pmsg = profile.error || 'Could not load profile';
+            if (profile.missingTable) {
+                pmsg += ` (missing: ${profile.missingTable})`;
+            }
+            userList.innerHTML = `<tr><td colspan="3" style="text-align:center; color:#ef4444;">${pmsg}</td></tr>`;
+            return;
+        }
+
+        userList.innerHTML = `
+            <tr>
+                <td>${profile.name || 'N/A'}</td>
+                <td>${profile.role || 'N/A'}</td>
+                <td>${profile.email || 'N/A'}</td>
+            </tr>
+        `;
+
+    } catch (err) {
+        console.error('Home load user error:', err);
+        document.getElementById('userList').innerHTML =
+            '<tr><td colspan="3" style="text-align:center; color:#ef4444;">Error loading profile</td></tr>';
+    }
+}
+
+async function loadReports() {
+    try {
+        const res = await fetch(`${API_BASE}/reports`);
+        if (!res.ok) throw new Error('Failed to fetch report data');
+
+        const report = await res.json();
+
+        const summary = document.getElementById('reportSummary');
+        summary.innerHTML = `
+            <div class="report-summary-row">
+                <div><strong>Total entries:</strong> ${report.totals.total_entries ?? report.totals.total_shipments ?? 0}</div>
+                <div><strong>Total kgs:</strong> ${report.totals.total_kgs ?? report.totals.total_quantity ?? 0}</div>
+            </div>
+        `;
+
+        const reportBody = document.getElementById('reportBody');
+        if (reportBody) {
+            if (!report.breakdown || report.breakdown.length === 0) {
+                reportBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#64748b;">No breakdown data</td></tr>';
+            } else {
+                reportBody.innerHTML = report.breakdown.map(row => `
+                    <tr>
+                        <td>${row.uom != null && row.uom !== '' ? row.uom : 'N/A'}</td>
+                        <td>${row.material_grade ?? row.country ?? 'N/A'}</td>
+                        <td>${row.total_kgs ?? row.total_quantity ?? 0}</td>
+                    </tr>
+                `).join('');
+            }
+        }
+
+        // Load first page (latest 10)
+        await loadShipmentList(0);
+
+    } catch (err) {
+        console.error('Suggestion load report error:', err);
+        const reportSummaryEl = document.getElementById('reportSummary');
+        if (reportSummaryEl) reportSummaryEl.innerHTML = `<p style="color:#ef4444;">Error loading report data: ${err.message || err}</p>`;
+
+        const reportBodyEl = document.getElementById('reportBody');
+        if (reportBodyEl) reportBodyEl.innerHTML = '<tr><td colspan="3" style="text-align:center; color:#ef4444;">Error loading report rows</td></tr>';
+
+        const allShipmentsBodyEl = document.getElementById('allShipmentsBody');
+        if (allShipmentsBodyEl) allShipmentsBodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#ef4444;">Error loading entries</td></tr>';
+
+        // Ensure shipments are attempted even if report fails
+        await loadShipmentList(0);
+    }
+}
+
+async function refreshReports(event) {
+    event.preventDefault();
+
+    try {
+        const res = await fetch(`${API_BASE}/reports/refresh`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to refresh report');
+        await loadReports();
+    } catch (err) {
+        console.error('Refresh reports error:', err);
+        alert('Could not refresh reports. Check console for details.');
+    }
+}
+
+const shipmentPageSize = 10;
+let shipmentPage = 0;
+let shipmentTotal = null;
+let shipmentsLoading = false;
+
+async function loadShipmentTotalOnce() {
+    if (shipmentTotal != null) return shipmentTotal;
+    const res = await fetch(`${API_BASE}/shipments/count`);
+    const data = await res.json();
+    shipmentTotal = Number(data.total || 0);
+    return shipmentTotal;
+}
+
+async function loadShipmentList(page = 0) {
+    if (shipmentsLoading) return;
+    shipmentsLoading = true;
+
+    const nextBtn = document.getElementById('nextShipmentsBtn');
+    const prevBtn = document.getElementById('prevShipmentsBtn');
+    const pageInfo = document.getElementById('shipmentPageInfo');
+
+    try {
+        const loaderEl = document.getElementById('loader');
+        if (loaderEl) loaderEl.style.display = 'block';
+
+        // Reset page (and total) when switching pages from scratch
+        shipmentPage = Number.isFinite(page) ? page : 0;
+        const offset = shipmentPage * shipmentPageSize;
+
+        await loadShipmentTotalOnce();
+        const res = await fetch(`${API_BASE}/data?limit=${shipmentPageSize}&offset=${offset}`);
+        const data = await res.json();
+
+        // Cache only what we rendered on this page; QR exists only on the latest overall row (first overall)
+        cacheLatestShipmentRows(data);
+
+        const allShipmentsBody = document.getElementById('allShipmentsBody');
+        if (!allShipmentsBody) return;
+
+        if (!data || data.length === 0) {
+            allShipmentsBody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#64748b;">No entries found</td></tr>';
+        } else {
+            allShipmentsBody.innerHTML = data.map((row, idx) => {
+                const globalIndex = offset + idx;
+                const isLatestOverall = globalIndex === 0; // latest row (id desc)
+                return `
+                    <tr>
+                        <td>${row.raw_material_dimensions ?? row.product ?? 'N/A'}</td>
+                        <td>${row.material_grade ?? row.country ?? 'N/A'}</td>
+                        <td>${row.material_type ?? row.category ?? 'N/A'}</td>
+                        <td>${row.uom ?? row.sales ?? ''}</td>
+                        <td>${row.kgs ?? row.quantity ?? 0}</td>
+                        <td>${formatDate(row.shipment_date)}</td>
+                        <td style="text-align:center;">
+                            ${
+                                isLatestOverall
+                                    ? `<button class="btn-download" type="button" onclick="openQrModalForRow(${row.id})">QR</button>`
+                                    : ''
+                            }
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        if (pageInfo) {
+            const from = offset + 1;
+            const to = Math.min(offset + (data ? data.length : 0), shipmentTotal || 0);
+            pageInfo.textContent = shipmentTotal
+                ? `Showing ${from}-${to} of ${shipmentTotal}`
+                : '';
+        }
+
+        if (prevBtn) {
+            prevBtn.disabled = shipmentPage <= 0;
+        }
+        if (nextBtn) {
+            const nextOffset = (shipmentPage + 1) * shipmentPageSize;
+            nextBtn.disabled = shipmentTotal != null ? nextOffset >= shipmentTotal : false;
+        }
+    } catch (err) {
+        console.error('Failed to load shipment list:', err);
+        const allShipmentsBody = document.getElementById('allShipmentsBody');
+        if (allShipmentsBody) {
+            allShipmentsBody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#ef4444;">Error loading entries</td></tr>';
+        }
+    } finally {
+        const loaderEl = document.getElementById('loader');
+        if (loaderEl) loaderEl.style.display = 'none';
+        shipmentsLoading = false;
+    }
+}
+
+function nextShipmentPage() {
+    const nextBtn = document.getElementById('nextShipmentsBtn');
+    if (nextBtn && nextBtn.disabled) return;
+    loadShipmentList(shipmentPage + 1);
+}
+
+function prevShipmentPage() {
+    const prevBtn = document.getElementById('prevShipmentsBtn');
+    if (prevBtn && prevBtn.disabled) return;
+    loadShipmentList(shipmentPage - 1);
+}
+
+// --- QR Modal helpers (client-side generation) ---
+function getShipmentDetailsText(row) {
+    const dateText = row.shipment_date ? new Date(row.shipment_date).toISOString().slice(0, 10) : '';
+    return [
+        'Raw material details',
+        `ID: ${row.id}`,
+        `Rm Dimensions: ${row.raw_material_dimensions ?? row.product ?? ''}`,
+        `Material Grade: ${row.material_grade ?? row.country ?? ''}`,
+        `Material: ${row.material_type ?? row.category ?? ''}`,
+        `UOM: ${row.uom ?? row.sales ?? ''}`,
+        `Kgs: ${row.kgs ?? row.quantity ?? ''}`,
+        `Date: ${dateText}`
+    ].join('\n');
+}
+
+let lastShipmentRows = [];
+function cacheLatestShipmentRows(rows) {
+    lastShipmentRows = Array.isArray(rows) ? rows : [];
+}
+
+async function openQrModalForRow(id) {
+    const modal = document.getElementById('qrModal');
+    const qrContainer = document.getElementById('qrModalContainer');
+    const textEl = document.getElementById('qrModalText');
+    if (!modal || !qrContainer || !textEl) return;
+
+    const row = lastShipmentRows.find(r => r.id === id);
+    if (!row) {
+        textEl.textContent = 'Could not find this row for the QR.';
+        modal.style.display = 'block';
+        return;
+    }
+
+    const payload = getShipmentDetailsText(row);
+    textEl.textContent = payload;
+
+    try {
+        if (typeof QRCode === 'undefined') {
+            qrContainer.innerHTML = '';
+            textEl.textContent = 'QR library is not loaded in the browser.';
+            console.error('QRCode is undefined (qrcodejs failed to load).');
+        } else {
+            qrContainer.innerHTML = '';
+            // qrcodejs constructor renders into the given container
+            new QRCode(qrContainer, {
+                text: payload,
+                width: 220,
+                height: 220
+            });
+        }
+    } catch (e) {
+        qrContainer.innerHTML = '';
+        textEl.textContent = 'QR generation failed.';
+        console.error(e);
+    }
+
+    modal.style.display = 'block';
+}
+
+// Close modal
+const qrModalCloseBtn = document.getElementById('qrModalClose');
+if (qrModalCloseBtn) {
+    qrModalCloseBtn.addEventListener('click', () => {
+        const modal = document.getElementById('qrModal');
+        if (modal) modal.style.display = 'none';
+    });
+}
+</script>
+
+</body>
+</html>
