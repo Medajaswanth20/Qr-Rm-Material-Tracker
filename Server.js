@@ -39,11 +39,12 @@ app.use(express.json());
 
 // DB CONNECTION
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'Shipment_db',
-    password: 'Jaswanth2003M',
-    port: 5432,
+    user: 'postgres.gwbdzlicmoewikklrtcv',
+    host: 'aws-1-ap-southeast-1.pooler.supabase.com',
+    database: 'postgres',
+    password: 'Jaswanth2003M*',
+    port: 6543,
+    ssl: { rejectUnauthorized: false }
 });
 
 /** Material type codes (e.g. AL, SS) stored in UPPERCASE. */
