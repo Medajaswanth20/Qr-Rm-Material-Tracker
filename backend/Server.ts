@@ -262,13 +262,14 @@ app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<
             return;
         }
         
+        // Insert into material_types FIRST to satisfy foreign key constraints
+        await pool.query('INSERT INTO material_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [typeNorm]);
+        
         const inserted = await pool.query(
             `INSERT INTO shipments (raw_material_dimensions, material_grade, material_type, uom, kgs, shipment_date)
              VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
             [raw_material_dimensions, material_grade, typeNorm, uomNorm, kgsNum, shipment_date || null]
         );
-        
-        await pool.query('INSERT INTO material_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [typeNorm]);
         res.json({ success: true, shipment_id: inserted.rows[0].id });
     } catch (err) {
         res.status(500).json({ error: 'Error inserting data' });

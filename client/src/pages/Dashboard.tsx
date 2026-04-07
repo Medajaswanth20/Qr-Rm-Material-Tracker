@@ -70,8 +70,8 @@ export default function Dashboard() {
           <input type="text" name="raw_material_dimensions" placeholder="Rm Dimensions (e.g. L 3000 × W 2000 × H 3)" required />
           <input type="text" name="material_grade" placeholder="Material Grade" required />
           
-          <select name="material_type" required onChange={(e) => setShowNewMat(e.target.value === '__new__')}>
-            <option value="" disabled selected>Select Material</option>
+          <select name="material_type" required defaultValue="" onChange={(e) => setShowNewMat(e.target.value === '__new__')}>
+            <option value="" disabled>Select Material</option>
             {materialTypes.map(k => <option key={k.name} value={k.name}>{k.name}</option>)}
             <option value="__new__">+ Add new Material…</option>
           </select>

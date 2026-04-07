@@ -9,6 +9,8 @@
     "start": "ts-node backend/Server.ts",
     "dev:server": "ts-node backend/Server.ts",
     "dev:client": "npm run dev --prefix client",
+    "build:client": "npm run build --prefix client",
+    "preview:client": "npm run preview --prefix client",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

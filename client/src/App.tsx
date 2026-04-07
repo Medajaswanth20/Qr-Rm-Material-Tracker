@@ -18,13 +18,13 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
       <h2><Package size={24} /> Dashboard</h2>
       
       <Link to="/" className={location.pathname === '/' ? 'active' : ''}>
-         Raw material
+         <FileText size={18} /> Raw material
       </Link>
       <Link to="/reports" className={location.pathname === '/reports' ? 'active' : ''}>
-         Reports
+         <BarChart3 size={18} /> Reports
       </Link>
       <Link to="/machines" className={location.pathname.startsWith('/machines') ? 'active' : ''}>
-         Machines
+         <Settings size={18} /> Machines
       </Link>
       
       {location.pathname.startsWith('/machines') && (
