@@ -36,6 +36,10 @@ const Sidebar = ({ onLogout }: { onLogout: () => void }) => {
       <button onClick={onLogout} style={{ marginTop: '20px' }}>
         <LogOut size={18} /> Logout
       </button>
+
+      <div style={{ position: 'absolute', bottom: '20px', left: '1.25rem', color: '#9ca3af', fontSize: '0.85rem', fontWeight: 500 }}>
+        v 0.0.1
+      </div>
     </div>
   );
 };
