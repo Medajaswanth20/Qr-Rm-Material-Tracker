@@ -1,0 +1,59 @@
+<%- include('../partials/header') %>
+<%- include('../partials/sidebar', { activePage: 'dashboard', user: user }) %>
+
+<div class="user-card" id="userInfo" style="display:block;">
+    <h3>👤 My Profile</h3>
+    <table class="user-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Designation</th>
+                <th>Email</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><%= user.name || 'N/A' %></td>
+                <td><%= user.role || 'N/A' %></td>
+                <td><%= user.email || 'N/A' %></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<div id="shipmentSection" class="page-section">
+    <div class="header">
+        <h2>📊 Add raw material</h2>
+    </div>
+
+    <div class="card">
+        <% if (typeof error !== 'undefined' && error) { %>
+            <p style="color:#dc2626; margin-bottom:10px;"><%= error %></p>
+        <% } %>
+        <% if (typeof success !== 'undefined' && success) { %>
+            <p style="color:#16a34a; margin-bottom:10px;"><%= success %></p>
+        <% } %>
+
+        <form id="form" action="/add" method="POST">
+            <input type="text" name="raw_material_dimensions" placeholder="Rm Dimensions (e.g. L 3000 × W 2000 × H 3)" required>
+            <input type="text" name="material_grade" placeholder="Material Grade" required>
+            
+            <select id="materialTypeSelect" name="material_type" required>
+                <option value="" selected disabled>Select Material</option>
+                <% materialTypes.forEach(function(type) { %>
+                    <option value="<%= type.name %>"><%= type.name %></option>
+                <% }); %>
+                <option value="__new__">+ Add new Material…</option>
+            </select>
+            <input type="text" id="newMaterialTypeInput" name="new_material_type" placeholder="New Material (e.g. AL, SS — saved as UPPERCASE)" style="display:none; text-transform: uppercase;" autocomplete="off">
+            
+            <input type="text" name="uom" placeholder="UOM (e.g. KG, MT, PCS)" required>
+            <input type="number" name="kgs" placeholder="Kgs" step="any" min="0" required>
+            <input type="date" name="shipment_date" required>
+            
+            <button class="btn-primary" type="submit">➕ Add entry</button>
+        </form>
+    </div>
+</div>
+
+<%- include('../partials/footer') %>

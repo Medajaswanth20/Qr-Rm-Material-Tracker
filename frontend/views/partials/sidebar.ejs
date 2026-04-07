@@ -1,0 +1,15 @@
+<div class="sidebar">
+    <h2>📦 Dashboard</h2>
+    <% if (typeof user !== 'undefined' && user) { %>
+        <a href="/dashboard" class="<%= activePage === 'dashboard' ? 'active' : '' %>">Raw material</a>
+        <a href="/reports" class="<%= activePage === 'reports' ? 'active' : '' %>">Reports</a>
+        <a href="/machines" class="<%= activePage === 'machines' ? 'active' : '' %>">Machines</a>
+        <a href="/machines?selected=CMC" id="cncBtn" style="padding-left: 2rem; display: <%= activePage === 'machines' ? 'block' : 'none' %>;">.Cnc</a>
+        <form action="/logout" method="POST" style="margin-top:20px;">
+            <button type="submit" style="background:transparent; color:#e5e7eb; border:none; padding:10px; cursor:pointer; width:100%; text-align:left;">Logout</button>
+        </form>
+    <% } else { %>
+        <a href="/" class="active">Login</a>
+    <% } %>
+</div>
+<div class="content-area">
