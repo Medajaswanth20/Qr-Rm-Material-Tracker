@@ -1,21 +1,28 @@
-const path = require('path');
-const dotenvPath = process.env.DOTENV_PATH || path.join(__dirname, '../config/Mail.env');
-require('dotenv').config({ path: dotenvPath });
+import path from 'path';
+import express, { Request, Response, NextFunction } from 'express';
+import { Pool, QueryResult } from 'pg';
+import cors from 'cors';
+import ExcelJS from 'exceljs';
+import QRCode from 'qrcode';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+import cookieParser from 'cookie-parser';
 
-const express = require('express');
-const { Pool } = require('pg');
-const cors = require('cors');
-const ExcelJS = require('exceljs');
-const QRCode = require('qrcode');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
-const cookieParser = require('cookie-parser');
+// Resolve dotenv early
+import dotenv from 'dotenv';
+const dotenvPath = process.env.DOTENV_PATH || path.join(__dirname, '../config/Mail.env');
+dotenv.config({ path: dotenvPath });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret_shipment_app';
 const sendPasswordResetEmail = process.env.SEND_PASSWORD_RESET_EMAIL === 'true';
-const passwordResetTokens = {};
+
+interface TokenEntry {
+    userId: number;
+    expires: number;
+}
+const passwordResetTokens: Record<string, TokenEntry> = {};
 
 const emailTransporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.example.com',
@@ -29,10 +36,10 @@ const emailTransporter = nodemailer.createTransport({
 
 const app = express();
 
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, '../frontend/views'));
-
-app.use(cors());
+app.use(cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Vite default port
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -46,43 +53,40 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-function normalizeMaterialTypeName(raw) {
-    if (raw == null || raw === '') return '';
-    return String(raw).trim().toUpperCase();
+// Extend Express Request object
+interface JwtPayload {
+    id: number;
+    email: string;
 }
-function normalizeUom(raw) {
+
+interface UserProfile {
+    id: string | number;
+    name: string;
+    email: string;
+    role: string;
+}
+
+declare global {
+    namespace Express {
+        interface Request {
+            user?: JwtPayload;
+            userDetails?: UserProfile;
+        }
+    }
+}
+
+function normalizeMaterialTypeName(raw: any): string {
     if (raw == null || raw === '') return '';
     return String(raw).trim().toUpperCase();
 }
 
-// SSR AUTH MIDDLEWARE
-async function authenticate(req, res, next) {
-    const token = req.cookies.token;
-    if (!token) {
-        return res.redirect('/?error=Please%20log%20in%20to%20continue');
-    }
-    try {
-        const payload = jwt.verify(token, JWT_SECRET);
-        req.user = payload;
-        
-        // Fetch full user details for views
-        const email = String(req.user.email).toLowerCase();
-        const profile = await pool.query('SELECT id, name, email, role FROM users WHERE email=$1 LIMIT 1', [email]);
-        if(profile.rows.length > 0) {
-            req.userDetails = profile.rows[0];
-        } else {
-            req.userDetails = { id: '', name: 'Unknown', email: email, role: 'Unknown' };
-        }
-        
-        next();
-    } catch (err) {
-        res.clearCookie('token');
-        return res.redirect('/?error=Session%20expired,%20please%20log%20in%20again');
-    }
+function normalizeUom(raw: any): string {
+    if (raw == null || raw === '') return '';
+    return String(raw).trim().toUpperCase();
 }
 
 // JSON API Fallbacks or Utilities
-app.get('/material-types', async (req, res) => {
+app.get('/api/material-types', async (req: Request, res: Response) => {
     try {
         const r = await pool.query('SELECT id, name FROM material_types ORDER BY name ASC');
         res.json(r.rows);
@@ -91,43 +95,56 @@ app.get('/material-types', async (req, res) => {
     }
 });
 
+// SSR AUTH MIDDLEWARE -> changed to pure JSON middleware
+async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const token = req.cookies?.token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : null);
+    
+    if (!token) {
+        res.status(401).json({ error: 'Unauthorized: No token provided' });
+        return;
+    }
+
+    try {
+        const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+        req.user = payload;
+        
+        const email = String(req.user.email).toLowerCase();
+        const profile = await pool.query('SELECT id, name, email, role FROM users WHERE email=$1 LIMIT 1', [email]);
+        if (profile.rows.length > 0) {
+            req.userDetails = profile.rows[0];
+        } else {
+            req.userDetails = { id: '', name: 'Unknown', email: email, role: 'Unknown' };
+        }
+        
+        next();
+    } catch (err) {
+        res.clearCookie('token');
+        res.status(401).json({ error: 'Unauthorized: Invalid token' });
+        return;
+    }
+}
+
 const REPORT_UOM_EXPR = `COALESCE(NULLIF(trim(both FROM COALESCE(uom::text, '')), ''), 'N/A')`;
 
-// SSR ROUTES
-app.get('/', (req, res) => {
-    if(req.cookies.token) {
-        try {
-            jwt.verify(req.cookies.token, JWT_SECRET);
-            return res.redirect('/dashboard');
-        } catch(e) {}
-    }
-    const error = req.query.error;
-    const success = req.query.success;
-    res.render('pages/auth', { error, success });
+app.get('/api/me', authenticate, (req: Request, res: Response) => {
+    res.json({ user: req.userDetails });
 });
 
-app.get('/dashboard', authenticate, async (req, res) => {
+app.get('/api/dashboard', authenticate, async (req: Request, res: Response) => {
     try {
         const typesRow = await pool.query('SELECT id, name FROM material_types ORDER BY name ASC');
-        const error = req.query.error;
-        const success = req.query.success;
-        res.render('pages/dashboard', { 
-            user: req.userDetails, 
-            materialTypes: typesRow.rows,
-            error,
-            success
-        });
+        res.json({ materialTypes: typesRow.rows });
     } catch (e) {
-        res.render('pages/dashboard', { user: req.userDetails, materialTypes: [], error: 'Failed to load data', success: null });
+        res.status(500).json({ error: 'Failed to load dashboard data' });
     }
 });
 
-app.get('/reports', authenticate, async (req, res) => {
+app.get('/api/reports', authenticate, async (req: Request, res: Response) => {
     try {
-        // Stats
-        let breakdown;
-        let totals;
+        let breakdown: QueryResult | null = null;
+        let totals: QueryResult | null = null;
         let needFallback = false;
+        
         try {
             breakdown = await pool.query(`SELECT uom, material_grade, total_kgs FROM report ORDER BY material_grade ASC, uom ASC`);
             totals = await pool.query(`
@@ -145,40 +162,38 @@ app.get('/reports', authenticate, async (req, res) => {
             `);
         }
 
-        // Pagination for shipments list
         const page = Math.max(0, Number(req.query.page) || 0);
         const limit = 10;
         const offset = page * limit;
         const shipments = await pool.query('SELECT * FROM shipments ORDER BY id DESC LIMIT $1 OFFSET $2', [limit, offset]);
         
-        res.render('pages/reports', { 
-            user: req.userDetails, 
-            totals: totals.rows[0], 
-            breakdown: breakdown.rows, 
+        res.json({
+            totals: totals?.rows[0] || { total_entries: 0, total_kgs: 0 },
+            breakdown: breakdown?.rows || [],
             shipments: shipments.rows,
             page
         });
     } catch (e) {
         console.error(e);
-        res.send("Error loading reports");
+        res.status(500).json({ error: "Error loading reports" });
     }
 });
 
-app.get('/machines', authenticate, (req, res) => {
-    res.render('pages/machines', { 
-        user: req.userDetails, 
-        selected: req.query.selected || null 
-    });
-});
 
 // FORM ACTIONS
-app.post('/signup', async (req, res) => {
+app.post('/api/signup', async (req: Request, res: Response): Promise<void> => {
     const { name, email, password, role } = req.body;
-    if (!name || !email || !password) return res.redirect('/?error=Missing%20fields');
+    if (!name || !email || !password) {
+        res.status(400).json({ error: 'Missing fields' });
+        return;
+    }
     try {
         const normalizedEmail = email.toLowerCase();
         const existing = await pool.query('SELECT id FROM auth_users WHERE email = $1', [normalizedEmail]);
-        if (existing.rows.length > 0) return res.redirect('/?error=Email%20already%20registered');
+        if (existing.rows.length > 0) {
+            res.status(409).json({ error: 'Email already registered' });
+            return;
+        }
         
         const roleValue = role ? String(role).trim() : '';
         const password_hash = await bcrypt.hash(password, 10);
@@ -191,47 +206,61 @@ app.post('/signup', async (req, res) => {
         } catch (e) {
             await pool.query('UPDATE users SET name=$1, role=$2 WHERE email=$3', [name, roleValue, normalizedEmail]);
         }
-        res.redirect('/?success=Registration%20successful!%20Please%20log%20in.');
+        res.json({ success: true, message: 'Registration successful! Please log in.' });
     } catch (err) {
-        res.redirect('/?error=Server%20Error');
+        res.status(500).json({ error: 'Server Error' });
     }
 });
 
-app.post('/signin', async (req, res) => {
+app.post('/api/signin', async (req: Request, res: Response): Promise<void> => {
     const { email, password } = req.body;
-    if (!email || !password) return res.redirect('/?error=Missing%20credentials');
+    if (!email || !password) {
+        res.status(400).json({ error: 'Missing credentials' });
+        return;
+    }
     try {
         const normalizedEmail = email.toLowerCase();
         const result = await pool.query('SELECT id, name, email, password_hash, role FROM auth_users WHERE email = $1', [normalizedEmail]);
-        if (result.rows.length === 0) return res.redirect('/?error=Invalid%20credentials');
+        if (result.rows.length === 0) {
+            res.status(401).json({ error: 'Invalid credentials' });
+            return;
+        }
         
         const user = result.rows[0];
         const match = await bcrypt.compare(password, user.password_hash);
-        if (!match) return res.redirect('/?error=Invalid%20credentials');
+        if (!match) {
+            res.status(401).json({ error: 'Invalid credentials' });
+            return;
+        }
         
         const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '4h' });
-        res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-        res.redirect('/dashboard');
+        res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
+        res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role }, token });
     } catch (err) {
-        res.redirect('/?error=Sign%20in%20failed');
+        res.status(500).json({ error: 'Sign in failed' });
     }
 });
 
-app.post('/logout', (req, res) => {
+app.post('/api/logout', (req: Request, res: Response) => {
     res.clearCookie('token');
-    res.redirect('/?success=Logged%20out%20successfully');
+    res.json({ success: true });
 });
 
-// ADD RAW MATERIAL
-app.post('/add', authenticate, async (req, res) => {
+app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<void> => {
     const { raw_material_dimensions, material_grade, material_type, new_material_type, uom, kgs, shipment_date } = req.body;
     try {
         let typeNorm = normalizeMaterialTypeName(material_type === '__new__' ? new_material_type : material_type);
-        if (!typeNorm) return res.redirect('/dashboard?error=Missing%20material%20type');
+        if (!typeNorm) {
+            res.status(400).json({ error: 'Missing material type' });
+            return;
+        }
         
         const uomNorm = normalizeUom(uom);
         const kgsNum = kgs != null ? Number(kgs) : NaN;
-        if (!uomNorm || !Number.isFinite(kgsNum)) return res.redirect('/dashboard?error=Invalid%20units');
+        if (!uomNorm || !Number.isFinite(kgsNum)) {
+            res.status(400).json({ error: 'Invalid units' });
+            return;
+        }
         
         const inserted = await pool.query(
             `INSERT INTO shipments (raw_material_dimensions, material_grade, material_type, uom, kgs, shipment_date)
@@ -240,13 +269,13 @@ app.post('/add', authenticate, async (req, res) => {
         );
         
         await pool.query('INSERT INTO material_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [typeNorm]);
-        res.redirect('/dashboard?success=Data%20inserted%20successfully!');
+        res.json({ success: true, shipment_id: inserted.rows[0].id });
     } catch (err) {
-        res.redirect('/dashboard?error=Error%20inserting%20data');
+        res.status(500).json({ error: 'Error inserting data' });
     }
 });
 
-app.post('/reports/refresh', authenticate, async (req, res) => {
+app.post('/api/reports/refresh', authenticate, async (req: Request, res: Response) => {
     try {
         await pool.query('TRUNCATE TABLE report');
         await pool.query(`
@@ -254,13 +283,13 @@ app.post('/reports/refresh', authenticate, async (req, res) => {
             SELECT material_grade, ${REPORT_UOM_EXPR}, COALESCE(SUM(kgs), 0)
             FROM shipments GROUP BY material_grade, ${REPORT_UOM_EXPR}
         `);
-        res.redirect('/reports');
+        res.json({ success: true });
     } catch (err) {
-        res.status(500).send('Error refreshing reports');
+        res.status(500).json({ error: 'Error refreshing reports' });
     }
 });
 
-app.get('/download', authenticate, async (req, res) => {
+app.get('/api/download', authenticate, async (req: Request, res: Response) => {
     try {
         const result = await pool.query("SELECT id, raw_material_dimensions, material_grade, material_type, uom, kgs, shipment_date FROM shipments ORDER BY id ASC LIMIT 20000");
         const workbook = new ExcelJS.Workbook();
@@ -292,14 +321,14 @@ app.get('/download', authenticate, async (req, res) => {
         res.setHeader('Content-Disposition', 'attachment; filename=RawMaterial_Details.xlsx');
         res.send(buffer);
     } catch (err) {
-        res.status(500).send("Error downloading Excel");
+        res.status(500).json({ error: "Error downloading Excel" });
     }
 });
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 const server = app.listen(PORT, HOST, () => {
-    console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+    console.log(`🚀 TypeScript API Server running on http://${HOST}:${PORT}`);
 });
 server.on('error', (err) => {
     console.error('Server failed to start:', err);
