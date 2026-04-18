@@ -98,7 +98,7 @@ app.get('/api/material-types', async (req: Request, res: Response) => {
 // SSR AUTH MIDDLEWARE -> changed to pure JSON middleware
 async function authenticate(req: Request, res: Response, next: NextFunction): Promise<void> {
     const token = req.cookies?.token || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : null);
-    
+
     if (!token) {
         res.status(401).json({ error: 'Unauthorized: No token provided' });
         return;
@@ -107,7 +107,7 @@ async function authenticate(req: Request, res: Response, next: NextFunction): Pr
     try {
         const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
         req.user = payload;
-        
+
         const email = String(req.user.email).toLowerCase();
         const profile = await pool.query('SELECT id, name, email, role FROM users WHERE email=$1 LIMIT 1', [email]);
         if (profile.rows.length > 0) {
@@ -115,7 +115,7 @@ async function authenticate(req: Request, res: Response, next: NextFunction): Pr
         } else {
             req.userDetails = { id: '', name: 'Unknown', email: email, role: 'Unknown' };
         }
-        
+
         next();
     } catch (err) {
         res.clearCookie('token');
@@ -141,35 +141,22 @@ app.get('/api/dashboard', authenticate, async (req: Request, res: Response) => {
 
 app.get('/api/reports', authenticate, async (req: Request, res: Response) => {
     try {
-        let breakdown: QueryResult | null = null;
-        let totals: QueryResult | null = null;
-        let needFallback = false;
-        
-        try {
-            breakdown = await pool.query(`SELECT uom, material_grade, total_kgs FROM report ORDER BY material_grade ASC, uom ASC`);
-            totals = await pool.query(`
-                SELECT (SELECT COUNT(*)::bigint FROM shipments) AS total_entries,
-                       COALESCE((SELECT SUM(total_kgs) FROM report), 0) AS total_kgs
-            `);
-            if (breakdown.rows.length === 0) needFallback = true;
-        } catch (innerErr) { needFallback = true; }
-
-        if (needFallback) {
-            totals = await pool.query(`SELECT COUNT(*)::bigint AS total_entries, COALESCE(SUM(kgs), 0) AS total_kgs FROM shipments`);
-            breakdown = await pool.query(`
-                SELECT ${REPORT_UOM_EXPR} AS uom, material_grade, COALESCE(SUM(kgs), 0) AS total_kgs
-                FROM shipments GROUP BY material_grade, ${REPORT_UOM_EXPR} ORDER BY material_grade ASC, uom ASC
-            `);
-        }
+        const totals = await pool.query(`SELECT COUNT(*)::bigint AS total_entries, COALESCE(SUM(kgs), 0) AS total_kgs FROM shipments`);
+        const breakdown = await pool.query(`
+            SELECT material_type, COALESCE(SUM(kgs), 0) AS total_kgs
+            FROM shipments
+            GROUP BY material_type
+            ORDER BY total_kgs DESC
+        `);
 
         const page = Math.max(0, Number(req.query.page) || 0);
         const limit = 10;
         const offset = page * limit;
-        const shipments = await pool.query('SELECT * FROM shipments ORDER BY id DESC LIMIT $1 OFFSET $2', [limit, offset]);
-        
+        const shipments = await pool.query('SELECT rm_code, raw_material_dimensions, material_shape, material_grade, material_type, uom, kgs, shipment_date FROM shipments ORDER BY id DESC LIMIT $1 OFFSET $2', [limit, offset]);
+
         res.json({
-            totals: totals?.rows[0] || { total_entries: 0, total_kgs: 0 },
-            breakdown: breakdown?.rows || [],
+            totals: totals.rows[0] || { total_entries: 0, total_kgs: 0 },
+            breakdown: breakdown.rows || [],
             shipments: shipments.rows,
             page
         });
@@ -194,7 +181,7 @@ app.post('/api/signup', async (req: Request, res: Response): Promise<void> => {
             res.status(409).json({ error: 'Email already registered' });
             return;
         }
-        
+
         const roleValue = role ? String(role).trim() : '';
         const password_hash = await bcrypt.hash(password, 10);
         await pool.query(
@@ -225,14 +212,14 @@ app.post('/api/signin', async (req: Request, res: Response): Promise<void> => {
             res.status(401).json({ error: 'Invalid credentials' });
             return;
         }
-        
+
         const user = result.rows[0];
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) {
             res.status(401).json({ error: 'Invalid credentials' });
             return;
         }
-        
+
         const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '4h' });
         res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax' });
         res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role }, token });
@@ -247,68 +234,80 @@ app.post('/api/logout', (req: Request, res: Response) => {
 });
 
 app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<void> => {
-    const { raw_material_dimensions, material_grade, material_type, new_material_type, uom, kgs, shipment_date } = req.body;
+    const { raw_material_dimensions, material_shape, material_grade, material_type, new_material_type, uom, kgs, shipment_date } = req.body;
     try {
         let typeNorm = normalizeMaterialTypeName(material_type === '__new__' ? new_material_type : material_type);
         if (!typeNorm) {
             res.status(400).json({ error: 'Missing material type' });
             return;
         }
-        
+
         const uomNorm = normalizeUom(uom);
         const kgsNum = kgs != null ? Number(kgs) : NaN;
         if (!uomNorm || !Number.isFinite(kgsNum)) {
             res.status(400).json({ error: 'Invalid units' });
             return;
         }
-        
+
         // Insert into material_types FIRST to satisfy foreign key constraints
         await pool.query('INSERT INTO material_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [typeNorm]);
-        
+
         const inserted = await pool.query(
-            `INSERT INTO shipments (raw_material_dimensions, material_grade, material_type, uom, kgs, shipment_date)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-            [raw_material_dimensions, material_grade, typeNorm, uomNorm, kgsNum, shipment_date || null]
+            `INSERT INTO shipments (raw_material_dimensions, material_shape, material_grade, material_type, uom, kgs, shipment_date)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+            [raw_material_dimensions, material_shape || null, material_grade, typeNorm, uomNorm, kgsNum, shipment_date || null]
         );
-        res.json({ success: true, shipment_id: inserted.rows[0].id });
+
+        const newShipmentId = inserted.rows[0].id;
+        // Generate public-facing RM code and persist it
+        const rmCode = `RM-${String(newShipmentId).padStart(5, '0')}`;
+        await pool.query('UPDATE shipments SET rm_code = $1 WHERE id = $2', [rmCode, newShipmentId]);
+
+        const actorEmail = req.user?.email || 'unknown';
+        const newRow = {
+            rm_code: rmCode,
+            raw_material_dimensions,
+            material_shape: material_shape || null,
+            material_grade,
+            material_type: typeNorm,
+            uom: uomNorm,
+            kgs: kgsNum,
+            shipment_date: shipment_date || null
+        };
+
+        await pool.query(
+            `INSERT INTO shipment_audit (shipment_id, action, actor_email, new_row)
+             VALUES ($1, 'INSERT', $2, $3)`,
+            [newShipmentId, actorEmail, JSON.stringify(newRow)]
+        );
+
+        res.json({ success: true, rm_code: rmCode });
     } catch (err) {
         res.status(500).json({ error: 'Error inserting data' });
     }
 });
 
-app.post('/api/reports/refresh', authenticate, async (req: Request, res: Response) => {
-    try {
-        await pool.query('TRUNCATE TABLE report');
-        await pool.query(`
-            INSERT INTO report (material_grade, uom, total_kgs)
-            SELECT material_grade, ${REPORT_UOM_EXPR}, COALESCE(SUM(kgs), 0)
-            FROM shipments GROUP BY material_grade, ${REPORT_UOM_EXPR}
-        `);
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Error refreshing reports' });
-    }
-});
-
 app.get('/api/download', authenticate, async (req: Request, res: Response) => {
     try {
-        const result = await pool.query("SELECT id, raw_material_dimensions, material_grade, material_type, uom, kgs, shipment_date FROM shipments ORDER BY id ASC LIMIT 20000");
+        const result = await pool.query("SELECT id, raw_material_dimensions, material_shape, material_grade, material_type, uom, kgs, shipment_date FROM shipments ORDER BY id ASC LIMIT 20000");
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Raw material");
         sheet.columns = [
             { header: 'ID', key: 'id', width: 10 },
             { header: 'Rm Dimensions', key: 'raw_material_dimensions', width: 26 },
+            { header: 'Shape', key: 'material_shape', width: 15 },
             { header: 'Material Grade', key: 'material_grade', width: 18 },
             { header: 'Material', key: 'material_type', width: 16 },
             { header: 'UOM', key: 'uom', width: 12 },
             { header: 'Kgs', key: 'kgs', width: 14 },
             { header: 'Date', key: 'shipment_date', width: 20 }
         ];
-        
+
         for (let row of result.rows) {
             sheet.addRow({
                 id: row.id,
                 raw_material_dimensions: row.raw_material_dimensions || '',
+                material_shape: row.material_shape || '',
                 material_grade: row.material_grade || '',
                 material_type: row.material_type || '',
                 uom: row.uom || '',
@@ -316,7 +315,7 @@ app.get('/api/download', authenticate, async (req: Request, res: Response) => {
                 shipment_date: row.shipment_date ? new Date(row.shipment_date) : ''
             });
         }
-        
+
         const buffer = await workbook.xlsx.writeBuffer();
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename=RawMaterial_Details.xlsx');
