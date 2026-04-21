@@ -437,3 +437,31 @@ body {
   0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
   50% { box-shadow: 0 0 0 6px rgba(99,102,241,0.12); }
 }
+
+/* ── PRINT STYLES ─────────────────────────────────────── */
+@media print {
+  /* Hide the entire app */
+  #root { display: none !important; }
+
+  /* Show only the portaled print label */
+  .print-label {
+    display: flex !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    background: #fff !important;
+    padding: 16px !important;
+    z-index: 99999 !important;
+  }
+
+  @page {
+    size: A5 landscape;
+    margin: 8mm;
+  }
+}
+
+/* Hidden on screen — portaled to body so it's outside #root */
+.print-label {
+  display: none;
+}

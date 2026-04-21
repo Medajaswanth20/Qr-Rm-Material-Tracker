@@ -289,11 +289,11 @@ app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<
 
 app.get('/api/download', authenticate, async (req: Request, res: Response) => {
     try {
-        const result = await pool.query("SELECT id, raw_material_dimensions, material_shape, material_grade, material_type, uom, kgs, shipment_date FROM shipments ORDER BY id ASC LIMIT 20000");
+        const result = await pool.query("SELECT rm_code, raw_material_dimensions, material_shape, material_grade, material_type, uom, kgs, shipment_date FROM shipments ORDER BY id ASC LIMIT 20000");
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("Raw material");
         sheet.columns = [
-            { header: 'ID', key: 'id', width: 10 },
+            { header: 'RM Code', key: 'rm_code', width: 14 },
             { header: 'Rm Dimensions', key: 'raw_material_dimensions', width: 26 },
             { header: 'Shape', key: 'material_shape', width: 15 },
             { header: 'Material Grade', key: 'material_grade', width: 18 },
@@ -305,7 +305,7 @@ app.get('/api/download', authenticate, async (req: Request, res: Response) => {
 
         for (let row of result.rows) {
             sheet.addRow({
-                id: row.id,
+                rm_code: row.rm_code || '',
                 raw_material_dimensions: row.raw_material_dimensions || '',
                 material_shape: row.material_shape || '',
                 material_grade: row.material_grade || '',
