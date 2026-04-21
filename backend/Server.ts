@@ -88,10 +88,59 @@ function normalizeUom(raw: any): string {
 // JSON API Fallbacks or Utilities
 app.get('/api/material-types', async (req: Request, res: Response) => {
     try {
-        const r = await pool.query('SELECT id, name FROM material_types ORDER BY name ASC');
+        const r = await pool.query(`
+            SELECT mt.id, mt.name, mt.category_id, rc.name AS category_name
+            FROM material_types mt
+            LEFT JOIN rm_categories rc ON mt.category_id = rc.id
+            ORDER BY mt.name ASC
+        `);
         res.json(r.rows);
     } catch (err) {
         res.status(500).json({ error: 'Error fetching material types' });
+    }
+});
+
+app.get('/api/rm-categories', async (req: Request, res: Response) => {
+    try {
+        const r = await pool.query('SELECT id, name FROM rm_categories ORDER BY name ASC');
+        res.json(r.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching categories' });
+    }
+});
+
+app.get('/api/rm-shapes', authenticate, async (req: Request, res: Response) => {
+    try {
+        const { category_id } = req.query;
+        if (!category_id) {
+            const r = await pool.query('SELECT * FROM rm_shapes ORDER BY category_id, shape_name ASC');
+            res.json(r.rows);
+            return;
+        }
+        const r = await pool.query(
+            'SELECT * FROM rm_shapes WHERE category_id = $1 ORDER BY shape_name ASC',
+            [Number(category_id)]
+        );
+        res.json(r.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching shapes' });
+    }
+});
+
+app.get('/api/material-grades', authenticate, async (req: Request, res: Response) => {
+    try {
+        const { material_type_id } = req.query;
+        if (!material_type_id) {
+            res.json([]);
+            return;
+        }
+        const r = await pool.query(
+            'SELECT id, grade FROM material_grades WHERE material_type_id = $1 ORDER BY grade ASC',
+            [Number(material_type_id)]
+        );
+        res.json(r.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Error fetching grades' });
     }
 });
 
@@ -234,7 +283,12 @@ app.post('/api/logout', (req: Request, res: Response) => {
 });
 
 app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<void> => {
-    const { raw_material_dimensions, material_shape, material_grade, material_type, new_material_type, uom, kgs, shipment_date } = req.body;
+    const {
+        raw_material_dimensions, material_shape, material_grade, material_type,
+        new_material_type, uom, kgs, shipment_date,
+        // FK IDs from the dynamic form
+        category_id, material_type_id, material_shape_id, material_grade_id
+    } = req.body;
     try {
         let typeNorm = normalizeMaterialTypeName(material_type === '__new__' ? new_material_type : material_type);
         if (!typeNorm) {
@@ -252,14 +306,54 @@ app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<
         // Insert into material_types FIRST to satisfy foreign key constraints
         await pool.query('INSERT INTO material_types (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [typeNorm]);
 
+        // If adding a new material type with a category, set its category_id
+        const newMatCatId = req.body.new_material_category_id;
+        if (newMatCatId) {
+            await pool.query(
+                'UPDATE material_types SET category_id = $1 WHERE name = $2 AND category_id IS NULL',
+                [Number(newMatCatId), typeNorm]
+            );
+        }
+
+        // Resolve material_type_id if not provided
+        let resolvedTypeId = material_type_id ? Number(material_type_id) : null;
+        if (!resolvedTypeId) {
+            const typeRow = await pool.query('SELECT id FROM material_types WHERE name = $1', [typeNorm]);
+            resolvedTypeId = typeRow.rows[0]?.id || null;
+        }
+
+        // Resolve grade_id if grade string provided but no ID
+        let resolvedGradeId = material_grade_id ? Number(material_grade_id) : null;
+        if (!resolvedGradeId && material_grade && resolvedTypeId) {
+            const gradeRow = await pool.query(
+                'SELECT id FROM material_grades WHERE material_type_id = $1 AND grade = $2',
+                [resolvedTypeId, material_grade]
+            );
+            resolvedGradeId = gradeRow.rows[0]?.id || null;
+        }
+
         const inserted = await pool.query(
-            `INSERT INTO shipments (raw_material_dimensions, material_shape, material_grade, material_type, uom, kgs, shipment_date)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-            [raw_material_dimensions, material_shape || null, material_grade, typeNorm, uomNorm, kgsNum, shipment_date || null]
+            `INSERT INTO shipments
+               (raw_material_dimensions, material_shape, material_grade, material_type,
+                uom, kgs, shipment_date,
+                material_type_id, material_shape_id, material_grade_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             RETURNING id`,
+            [
+                raw_material_dimensions,
+                material_shape || null,
+                material_grade || null,
+                typeNorm,
+                uomNorm,
+                kgsNum,
+                shipment_date || null,
+                resolvedTypeId,
+                material_shape_id ? Number(material_shape_id) : null,
+                resolvedGradeId
+            ]
         );
 
         const newShipmentId = inserted.rows[0].id;
-        // Generate public-facing RM code and persist it
         const rmCode = `RM-${String(newShipmentId).padStart(5, '0')}`;
         await pool.query('UPDATE shipments SET rm_code = $1 WHERE id = $2', [rmCode, newShipmentId]);
 
@@ -268,11 +362,14 @@ app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<
             rm_code: rmCode,
             raw_material_dimensions,
             material_shape: material_shape || null,
-            material_grade,
+            material_grade: material_grade || null,
             material_type: typeNorm,
             uom: uomNorm,
             kgs: kgsNum,
-            shipment_date: shipment_date || null
+            shipment_date: shipment_date || null,
+            material_type_id: resolvedTypeId,
+            material_shape_id: material_shape_id || null,
+            material_grade_id: resolvedGradeId
         };
 
         await pool.query(
@@ -283,6 +380,7 @@ app.post('/api/add', authenticate, async (req: Request, res: Response): Promise<
 
         res.json({ success: true, rm_code: rmCode });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: 'Error inserting data' });
     }
 });
